@@ -1,12 +1,22 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/auth-context";
 
 interface NavbarProps {
   cta?: { label: string; href: string };
 }
 
 export function Navbar({ cta }: NavbarProps) {
+  const { user, signOut } = useAuth();
+  const router = useRouter();
+
+  async function handleSignOut() {
+    await signOut();
+    router.replace("/");
+  }
+
   return (
     <header className="sticky top-0 z-40 w-full">
       <div className="glass-strong border-b border-white/10">
@@ -21,13 +31,33 @@ export function Navbar({ cta }: NavbarProps) {
             AI<span className="text-brand-400">Post</span>
           </Link>
 
-          {cta && (
-            <Link
-              href={cta.href}
-              className="rounded-xl bg-brand-600 px-5 py-2.5 text-base font-semibold text-white transition-colors hover:bg-brand-500 md:px-7 md:py-3 md:text-lg"
-            >
-              {cta.label}
-            </Link>
+          {user ? (
+            <div className="flex items-center gap-3 md:gap-4">
+              <span className="hidden max-w-[12rem] truncate text-base text-white/50 sm:block">
+                {user.email}
+              </span>
+              <Link
+                href="/dashboard"
+                className="hidden rounded-xl px-4 py-2.5 text-base font-semibold text-white/70 transition-colors hover:text-white md:block"
+              >
+                Painel
+              </Link>
+              <button
+                onClick={handleSignOut}
+                className="rounded-xl border border-white/15 px-5 py-2.5 text-base font-semibold text-white/80 transition-colors hover:border-white/30 hover:text-white md:text-lg"
+              >
+                Sair
+              </button>
+            </div>
+          ) : (
+            cta && (
+              <Link
+                href={cta.href}
+                className="rounded-xl bg-brand-600 px-5 py-2.5 text-base font-semibold text-white transition-colors hover:bg-brand-500 md:px-7 md:py-3 md:text-lg"
+              >
+                {cta.label}
+              </Link>
+            )
           )}
         </nav>
       </div>

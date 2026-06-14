@@ -1,28 +1,62 @@
 "use client";
 
-import axios from "axios";
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useRouter } from "next/navigation";
 import { Navbar } from "@/components/ui/Navbar";
+import { PageLoader } from "@/components/ui/PageLoader";
 import { UploadZone } from "@/components/dashboard/UploadZone";
-import { setupMarca } from "@/lib/api";
+import {
+  setupMarca,
+  listarProdutos,
+  getStatus,
+  mensagemErro,
+  type ProdutoSalvo,
+} from "@/lib/api";
 import { useToast } from "@/lib/toast-context";
-
-const DEMO_CLIENT_ID = "00000000-0000-0000-0000-000000000001";
+import { useRequireAuth } from "@/lib/use-require-auth";
 
 export default function SetupPage() {
   const router = useRouter();
   const { toast } = useToast();
+  const { user, ready } = useRequireAuth();
 
   const [step, setStep] = useState<1 | 2>(1);
   const [saving, setSaving] = useState(false);
+  const [produtos, setProdutos] = useState<ProdutoSalvo[]>([]);
+  const [initDone, setInitDone] = useState(false);
   const [form, setForm] = useState({
     nomeMarca: "",
     tomVoz: "",
     nicho: "",
     descricao: "",
   });
+
+  const carregarProdutos = useCallback(async () => {
+    if (!user) return;
+    try {
+      setProdutos(await listarProdutos(user.id));
+    } catch {
+      /* silencioso */
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (ready) carregarProdutos();
+  }, [ready, carregarProdutos]);
+
+  // Se a marca já existe (só faltam fotos), começa direto no passo 2.
+  useEffect(() => {
+    if (!ready || !user || initDone) return;
+    getStatus(user.id)
+      .then((s) => {
+        if (s.tem_marca && !s.tem_fotos) setStep(2);
+        setInitDone(true);
+      })
+      .catch(() => setInitDone(true));
+  }, [ready, user, initDone]);
+
+  if (!ready || !user) return <PageLoader />;
 
   function handleChange(
     e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
@@ -39,22 +73,16 @@ export default function SetupPage() {
     setSaving(true);
     try {
       await setupMarca({
-        clienteId: DEMO_CLIENT_ID,
+        clienteId: user!.id,
         nomeMarca: form.nomeMarca,
         tomVoz: form.tomVoz,
         nicho: form.nicho,
         descricao: form.descricao,
       });
-      toast("Tudo certo! Agora mande suas fotos.", "success");
+      toast("Tudo certo! Agora suas fotos.", "success");
       setStep(2);
     } catch (error: unknown) {
-      const detail = axios.isAxiosError(error)
-        ? ((error.response?.data as { detail?: string } | undefined)?.detail ??
-          error.message)
-        : error instanceof Error
-          ? error.message
-          : "Erro desconhecido";
-      toast(`Erro ao salvar: ${detail}`, "error");
+      toast(`Erro ao salvar: ${mensagemErro(error, "tente de novo")}`, "error");
     } finally {
       setSaving(false);
     }
@@ -74,7 +102,7 @@ export default function SetupPage() {
         />
 
         <div className="section-pad relative mx-auto max-w-3xl">
-          {/* Barra de progresso grande e clara */}
+          {/* Progresso */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -124,7 +152,7 @@ export default function SetupPage() {
             <p className="mt-3 text-[clamp(1rem,2vw,1.35rem)] text-white/55">
               {step === 1
                 ? "Não precisa caprichar — escreva do seu jeito mesmo."
-                : "Tire foto dos seus produtos e arraste para a área abaixo."}
+                : "Suas fotos ficam salvas na sua conta. Você só precisa enviar uma vez."}
             </p>
           </motion.div>
 
@@ -165,14 +193,9 @@ export default function SetupPage() {
               />
 
               <div className="space-y-2">
-                <label
-                  htmlFor="descricao"
-                  className="block text-lg font-semibold text-white"
-                >
+                <label htmlFor="descricao" className="block text-lg font-semibold text-white">
                   Quer contar mais alguma coisa?{" "}
-                  <span className="text-base font-normal text-white/40">
-                    (opcional)
-                  </span>
+                  <span className="text-base font-normal text-white/40">(opcional)</span>
                 </label>
                 <textarea
                   id="descricao"
@@ -201,15 +224,42 @@ export default function SetupPage() {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
             >
+              {/* Fotos já salvas */}
+              {produtos.length > 0 && (
+                <div className="mb-6 rounded-3xl border border-white/10 bg-white/[0.03] p-6">
+                  <p className="mb-4 text-lg font-semibold text-white">
+                    📁 Suas fotos salvas ({produtos.length})
+                  </p>
+                  <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+                    {produtos.map((p) => (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        key={p.id}
+                        src={p.url_imagem}
+                        alt={p.texto_base}
+                        title={p.texto_base}
+                        className="aspect-square w-full rounded-xl object-cover"
+                      />
+                    ))}
+                  </div>
+                  <p className="mt-3 text-base text-white/40">
+                    Essas fotos já estão guardadas. Você não precisa enviar de novo.
+                  </p>
+                </div>
+              )}
+
               <div className="glass-strong rounded-3xl p-7 lg:p-10">
-                <UploadZone clienteId={DEMO_CLIENT_ID} />
+                <UploadZone clienteId={user.id} onUploaded={carregarProdutos} />
               </div>
 
               <button
                 onClick={() => router.push("/dashboard")}
-                className="glow-purple-sm mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 py-5 text-xl font-bold text-white transition-all hover:scale-[1.01] hover:bg-brand-500"
+                disabled={produtos.length === 0}
+                className="glow-purple-sm mt-6 flex w-full items-center justify-center gap-2 rounded-2xl bg-brand-600 py-5 text-xl font-bold text-white transition-all hover:scale-[1.01] hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Já mandei minhas fotos, criar posts! →
+                {produtos.length === 0
+                  ? "Adicione ao menos 1 foto para continuar"
+                  : "Pronto, criar meus posts! →"}
               </button>
               <button
                 onClick={() => setStep(1)}

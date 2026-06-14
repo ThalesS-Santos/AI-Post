@@ -7,7 +7,7 @@ import { ForWho } from "@/components/welcome/ForWho";
 export default function WelcomePage() {
   return (
     <>
-      <Navbar cta={{ label: "Entrar", href: "/setup" }} />
+      <Navbar cta={{ label: "Entrar", href: "/login" }} />
 
       <main>
         <HeroSection />
@@ -32,7 +32,7 @@ export default function WelcomePage() {
               posts agora mesmo. É de graça.
             </p>
             <Link
-              href="/setup"
+              href="/login"
               className="glow-purple mt-12 inline-flex items-center justify-center gap-3 rounded-2xl bg-brand-600 px-12 py-6 text-2xl font-bold text-white transition-all hover:scale-[1.03] hover:bg-brand-500"
             >
               Criar meus posts grátis →

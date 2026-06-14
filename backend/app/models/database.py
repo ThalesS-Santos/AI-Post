@@ -55,6 +55,50 @@ async def salvar_embedding(
     return result.data[0]
 
 
+async def listar_produtos(cliente_id: str) -> list[dict]:
+    """Todas as fotos de produto salvas na conta do usuário."""
+    client = _get_client()
+    result = await asyncio.to_thread(
+        lambda: client.table("embeddings_marca")
+        .select("id, texto_base, url_imagem")
+        .eq("cliente_id", cliente_id)
+        .eq("tipo", "produto")
+        .order("created_at", desc=True)
+        .execute()
+    )
+    return result.data or []
+
+
+async def buscar_produto_por_id(cliente_id: str, produto_id: str) -> dict | None:
+    client = _get_client()
+    result = await asyncio.to_thread(
+        lambda: client.table("embeddings_marca")
+        .select("id, texto_base, url_imagem")
+        .eq("cliente_id", cliente_id)
+        .eq("id", produto_id)
+        .limit(1)
+        .execute()
+    )
+    data = result.data or []
+    return data[0] if data else None
+
+
+async def buscar_regra_marca(cliente_id: str) -> dict | None:
+    """Tom de voz / regras da marca mais recentes do usuário."""
+    client = _get_client()
+    result = await asyncio.to_thread(
+        lambda: client.table("embeddings_marca")
+        .select("texto_base")
+        .eq("cliente_id", cliente_id)
+        .eq("tipo", "regra_marca")
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    data = result.data or []
+    return data[0] if data else None
+
+
 async def fazer_upload_storage(
     bucket: str,
     caminho: str,

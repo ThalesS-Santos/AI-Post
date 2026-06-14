@@ -3,6 +3,7 @@ import { Inter, Outfit } from "next/font/google";
 import "./globals.css";
 import { ToastProvider } from "@/lib/toast-context";
 import { ToastContainer } from "@/components/ui/Toast";
+import { AuthProvider } from "@/lib/auth-context";
 
 const inter = Inter({ subsets: ["latin"], variable: "--font-inter" });
 const outfit = Outfit({ subsets: ["latin"], variable: "--font-outfit" });
@@ -22,8 +23,10 @@ export default function RootLayout({
     <html lang="pt-BR" className={`${inter.variable} ${outfit.variable}`}>
       <body className="bg-surface-900 text-white min-h-screen">
         <ToastProvider>
-          {children}
-          <ToastContainer />
+          <AuthProvider>
+            {children}
+            <ToastContainer />
+          </AuthProvider>
         </ToastProvider>
       </body>
     </html>

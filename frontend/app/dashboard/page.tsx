@@ -1,14 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useRouter } from "next/navigation";
 import { Navbar } from "@/components/ui/Navbar";
+import { PageLoader } from "@/components/ui/PageLoader";
 import { GenerateButton } from "@/components/dashboard/GenerateButton";
+import { PostCard } from "@/components/dashboard/PostCard";
 import { SkeletonGrid } from "@/components/ui/SkeletonCard";
-import { gerarPosts, type PostContent } from "@/lib/api";
+import { gerarPosts, getStatus, mensagemErro, type PostContent } from "@/lib/api";
 import { useToast } from "@/lib/toast-context";
-
-const DEMO_CLIENT_ID = "00000000-0000-0000-0000-000000000001";
+import { useRequireAuth } from "@/lib/use-require-auth";
 
 const SUGESTOES = [
   "Promoção da semana",
@@ -17,11 +19,38 @@ const SUGESTOES = [
   "Fim de semana",
 ];
 
+const QUANTIDADES = [
+  { valor: 1, titulo: "1 post", sub: "Teste rápido", icon: "⚡" },
+  { valor: 7, titulo: "7 posts", sub: "Uma semana", icon: "📅" },
+  { valor: 30, titulo: "30 posts", sub: "Um mês inteiro", icon: "🗓️" },
+];
+
 export default function DashboardPage() {
   const { toast } = useToast();
+  const router = useRouter();
+  const { user, ready } = useRequireAuth();
+
   const [foco, setFoco] = useState("");
+  const [quantidade, setQuantidade] = useState(7);
   const [loading, setLoading] = useState(false);
   const [posts, setPosts] = useState<PostContent[]>([]);
+  const [checandoSetup, setChecandoSetup] = useState(true);
+
+  // Onboarding: só entra no painel quem já cadastrou marca + fotos.
+  useEffect(() => {
+    if (!ready || !user) return;
+    getStatus(user.id)
+      .then((s) => {
+        if (!s.tem_marca || !s.tem_fotos) {
+          router.replace("/setup");
+        } else {
+          setChecandoSetup(false);
+        }
+      })
+      .catch(() => setChecandoSetup(false)); // se o status falhar, deixa entrar
+  }, [ready, user, router]);
+
+  if (!ready || !user || checandoSetup) return <PageLoader />;
 
   async function handleGenerate() {
     if (!foco.trim()) {
@@ -31,18 +60,29 @@ export default function DashboardPage() {
     setLoading(true);
     setPosts([]);
     try {
-      const result = await gerarPosts(DEMO_CLIENT_ID, foco, 7);
-      setPosts(result);
-      toast(`Prontinho! ${result.length} posts criados.`, "success");
+      const { posts: novos, gerados, solicitados } = await gerarPosts(
+        user!.id,
+        foco,
+        quantidade
+      );
+      setPosts(novos);
+      if (gerados < solicitados) {
+        toast(
+          `Criamos ${gerados} de ${solicitados} posts. O restante parou no limite gratuito do Gemini — espere 1 min e gere mais.`,
+          "info"
+        );
+      } else {
+        toast(`Prontinho! ${gerados} posts criados.`, "success");
+      }
     } catch (err: unknown) {
-      const msg =
-        err instanceof Error
-          ? err.message
-          : "Não consegui criar os posts. Tente de novo.";
-      toast(msg, "error");
+      toast(mensagemErro(err, "Não consegui criar os posts. Tente de novo."), "error");
     } finally {
       setLoading(false);
     }
+  }
+
+  function updatePost(index: number, novo: PostContent) {
+    setPosts((prev) => prev.map((p, i) => (i === index ? novo : p)));
   }
 
   return (
@@ -65,34 +105,69 @@ export default function DashboardPage() {
               O que vamos postar hoje? ✨
             </h1>
             <p className="mt-3 text-[clamp(1rem,2vw,1.4rem)] text-white/55">
-              Escreva o tema da semana. A gente cria 7 posts prontos com as suas
-              fotos.
+              Escreva o tema e escolha quantos posts quer criar com as suas fotos.
             </p>
 
-            <div className="mt-8 flex flex-col gap-4 lg:flex-row">
+            {/* Tema */}
+            <div className="mt-8">
+              <label htmlFor="tema" className="mb-2 block text-lg font-semibold text-white">
+                1. Qual o tema?
+              </label>
               <input
+                id="tema"
                 type="text"
                 placeholder="Ex: Promoção de Dia dos Namorados"
                 value={foco}
                 onChange={(e) => setFoco(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleGenerate()}
-                className="flex-1 rounded-2xl border border-white/10 bg-white/5 px-6 py-5 text-xl text-white placeholder-white/30 transition focus:border-brand-500 focus:outline-none"
+                className="w-full rounded-2xl border border-white/10 bg-white/5 px-6 py-5 text-xl text-white placeholder-white/30 transition focus:border-brand-500 focus:outline-none"
               />
-              <GenerateButton onClick={handleGenerate} loading={loading} />
+              <div className="mt-3 flex flex-wrap items-center gap-3">
+                <span className="text-base text-white/40">Ideias:</span>
+                {SUGESTOES.map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setFoco(s)}
+                    className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-base text-white/70 transition-colors hover:border-brand-500 hover:text-white"
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            {/* Sugestões rápidas */}
-            <div className="mt-5 flex flex-wrap items-center gap-3">
-              <span className="text-base text-white/40">Ideias:</span>
-              {SUGESTOES.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setFoco(s)}
-                  className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-base text-white/70 transition-colors hover:border-brand-500 hover:text-white"
-                >
-                  {s}
-                </button>
-              ))}
+            {/* Quantidade */}
+            <div className="mt-8">
+              <label className="mb-3 block text-lg font-semibold text-white">
+                2. Quantos posts?
+              </label>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                {QUANTIDADES.map((q) => (
+                  <button
+                    key={q.valor}
+                    onClick={() => setQuantidade(q.valor)}
+                    className={[
+                      "flex items-center gap-4 rounded-2xl border-2 p-5 text-left transition-all",
+                      quantidade === q.valor
+                        ? "border-brand-500 bg-brand-900/30"
+                        : "border-white/10 bg-white/5 hover:border-white/25",
+                    ].join(" ")}
+                  >
+                    <span className="text-4xl">{q.icon}</span>
+                    <span>
+                      <span className="block text-xl font-bold text-white">
+                        {q.titulo}
+                      </span>
+                      <span className="block text-base text-white/50">{q.sub}</span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Botão gerar */}
+            <div className="mt-8">
+              <GenerateButton onClick={handleGenerate} loading={loading} />
             </div>
           </div>
 
@@ -104,9 +179,10 @@ export default function DashboardPage() {
               className="mt-12"
             >
               <p className="mb-6 text-center text-xl text-white/55">
-                ⏳ Criando seus posts… isso leva alguns segundinhos.
+                ⏳ Criando seus posts… isso pode levar alguns minutos para lotes
+                grandes.
               </p>
-              <SkeletonGrid count={6} />
+              <SkeletonGrid count={Math.min(quantidade, 6)} />
             </motion.div>
           )}
 
@@ -123,7 +199,14 @@ export default function DashboardPage() {
                 </h2>
                 <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3 3xl:grid-cols-4">
                   {posts.map((post, i) => (
-                    <PostCard key={i} post={post} index={i} />
+                    <PostCard
+                      key={i}
+                      post={post}
+                      index={i}
+                      foco={foco}
+                      clienteId={user.id}
+                      onUpdate={updatePost}
+                    />
                   ))}
                 </div>
               </motion.div>
@@ -142,79 +225,5 @@ export default function DashboardPage() {
         </div>
       </main>
     </>
-  );
-}
-
-function PostCard({ post, index }: { post: PostContent; index: number }) {
-  const [copied, setCopied] = useState(false);
-
-  function copyLegenda() {
-    navigator.clipboard.writeText(
-      `${post.legenda_instagram}\n\n${post.hashtags.map((h) => `#${h}`).join(" ")}`
-    );
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  }
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 30 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{
-        type: "spring",
-        stiffness: 80,
-        damping: 16,
-        delay: index * 0.06,
-      }}
-      className="glass flex h-full flex-col gap-5 rounded-3xl p-7"
-    >
-      {/* Cabeçalho */}
-      <div className="flex items-start justify-between gap-3">
-        <h3 className="flex-1 text-xl font-bold leading-snug text-white">
-          {post.titulo_interno}
-        </h3>
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-brand-900/40 text-base font-bold text-brand-300">
-          {index + 1}
-        </span>
-      </div>
-
-      {/* Legenda */}
-      <p className="flex-1 text-lg leading-relaxed text-white/70">
-        {post.legenda_instagram}
-      </p>
-
-      {/* Dica visual */}
-      <div className="rounded-2xl border border-brand-700/30 bg-brand-900/25 px-4 py-3">
-        <p className="text-base text-brand-200">
-          <span className="font-semibold">🎨 Dica de foto: </span>
-          {post.sugestao_de_edicao_visual}
-        </p>
-      </div>
-
-      {/* Hashtags */}
-      <div className="flex flex-wrap gap-2">
-        {post.hashtags.map((h) => (
-          <span
-            key={h}
-            className="rounded-full bg-brand-900/30 px-3 py-1 text-base font-medium text-brand-300"
-          >
-            #{h}
-          </span>
-        ))}
-      </div>
-
-      {/* Botão copiar */}
-      <button
-        onClick={copyLegenda}
-        className={[
-          "mt-auto w-full rounded-2xl py-4 text-lg font-bold transition-all",
-          copied
-            ? "bg-green-600/80 text-white"
-            : "bg-brand-600 text-white hover:bg-brand-500",
-        ].join(" ")}
-      >
-        {copied ? "✓ Copiado!" : "📋 Copiar para o Instagram"}
-      </button>
-    </motion.div>
   );
 }
