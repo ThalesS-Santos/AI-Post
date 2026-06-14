@@ -1,0 +1,105 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --foreground: #e8e8f4;
+  --background: #0a0a0f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+  /*
+   * Fonte-base FLUIDA: cresce junto com a tela.
+   * Celular ~16px  ->  Desktop ~19px  ->  TV/4K ~26px.
+   * Como quase tudo usa rem, a interface INTEIRA escala de forma
+   * proporcional em qualquer tamanho de tela (celular até televisão).
+   */
+  font-size: clamp(16px, 0.55vw + 0.78rem, 26px);
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-inter), sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ---------- Glassmorphism ---------- */
+.glass {
+  background: rgba(255, 255, 255, 0.045);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+}
+
+.glass-strong {
+  background: rgba(20, 18, 35, 0.72);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* ---------- Glow ---------- */
+.glow-purple {
+  box-shadow: 0 0 30px rgba(139, 92, 246, 0.45),
+              0 0 60px rgba(139, 92, 246, 0.18);
+}
+
+.glow-purple-sm {
+  box-shadow: 0 0 16px rgba(139, 92, 246, 0.35);
+}
+
+/* ---------- Texto com gradiente ---------- */
+.text-gradient {
+  background: linear-gradient(110deg, #c4b5fd 0%, #8b5cf6 45%, #a78bfa 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ---------- Faixa de seção responsiva ---------- */
+.section-pad {
+  padding-left: clamp(1.25rem, 5vw, 6rem);
+  padding-right: clamp(1.25rem, 5vw, 6rem);
+}
+
+/* ---------- Skeleton shimmer ---------- */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    rgba(255,255,255,0.03) 25%,
+    rgba(255,255,255,0.08) 50%,
+    rgba(255,255,255,0.03) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 2s linear infinite;
+}
+
+@keyframes shimmer {
+  0%   { background-position: -200% 0; }
+  100% { background-position:  200% 0; }
+}
+
+/* ---------- Acessibilidade: foco visível e grande ---------- */
+:focus-visible {
+  outline: 3px solid #a78bfa;
+  outline-offset: 2px;
+}
+
+/* Respeita quem prefere menos movimento */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
