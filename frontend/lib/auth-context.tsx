@@ -9,6 +9,7 @@ import {
 } from "react";
 import type { User } from "@supabase/supabase-js";
 import { supabase } from "./supabase";
+import { setAuthToken } from "./api";
 
 interface AuthContextValue {
   user: User | null;
@@ -16,6 +17,7 @@ interface AuthContextValue {
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string) => Promise<{ needsConfirm: boolean }>;
   signOut: () => Promise<void>;
+  updateUserName: (nome: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -41,11 +43,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
-      setUser(data.session?.user ?? null);
+      const session = data.session;
+      if (session?.access_token) {
+        setAuthToken(session.access_token);
+      }
+      setUser(session?.user ?? null);
       setLoading(false);
     });
 
     const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.access_token) {
+        setAuthToken(session.access_token);
+      } else {
+        setAuthToken("");
+      }
       setUser(session?.user ?? null);
     });
 
@@ -68,8 +79,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await supabase.auth.signOut();
   }
 
+  async function updateUserName(nome: string) {
+    const { data, error } = await supabase.auth.updateUser({
+      data: { full_name: nome }
+    });
+    if (error) throw new Error(traduzErro(error.message));
+    if (data?.user) setUser(data.user);
+  }
+
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut }}>
+    <AuthContext.Provider value={{ user, loading, signIn, signUp, signOut, updateUserName }}>
       {children}
     </AuthContext.Provider>
   );

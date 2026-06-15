@@ -32,6 +32,15 @@ async def upload_produto(raw: bytes, cliente_id: str, nome_arquivo: str) -> str:
     return url
 
 
+async def upload_logo(raw: bytes, cliente_id: str, nome_arquivo: str) -> str:
+    # Para logo, mantemos o formato original (PNG com transparência) sem comprimir em JPEG.
+    caminho = f"{cliente_id}/logos/{uuid.uuid4()}_{nome_arquivo}"
+    # Detecta se é PNG ou JPEG
+    content_type = "image/png" if nome_arquivo.lower().endswith(".png") else "image/jpeg"
+    url = await fazer_upload_storage("catalogo-produtos", caminho, raw, content_type=content_type)
+    return url
+
+
 async def baixar_imagem(url: str) -> bytes:
     async with httpx.AsyncClient(timeout=15.0) as client:
         r = await client.get(url)

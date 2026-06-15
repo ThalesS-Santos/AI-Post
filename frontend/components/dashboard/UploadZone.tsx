@@ -14,6 +14,7 @@ interface UploadZoneProps {
 export function UploadZone({ clienteId, onUploaded }: UploadZoneProps) {
   const [preview, setPreview] = useState<string | null>(null);
   const [textoBase, setTextoBase] = useState("");
+  const [preco, setPreco] = useState("");
   const [progress, setProgress] = useState(0);
   const [uploading, setUploading] = useState(false);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
@@ -45,6 +46,7 @@ export function UploadZone({ clienteId, onUploaded }: UploadZoneProps) {
         clienteId,
         pendingFile,
         textoBase,
+        preco,
         (pct) => setProgress(pct)
       );
       toast("Foto adicionada! Pode mandar outra ou seguir em frente.", "success");
@@ -52,6 +54,7 @@ export function UploadZone({ clienteId, onUploaded }: UploadZoneProps) {
       setPreview(null);
       setPendingFile(null);
       setTextoBase("");
+      setPreco("");
       setProgress(0);
     } catch {
       toast("Não consegui enviar a foto. Tente de novo.", "error");
@@ -120,22 +123,41 @@ export function UploadZone({ clienteId, onUploaded }: UploadZoneProps) {
         </AnimatePresence>
       </div>
 
-      {/* O que é a foto */}
-      <div className="space-y-2">
-        <label
-          htmlFor="texto-produto"
-          className="block text-lg font-semibold text-white"
-        >
-          O que é essa foto?
-        </label>
-        <input
-          id="texto-produto"
-          type="text"
-          placeholder="Ex: Brigadeiro de morango com cobertura de chocolate"
-          value={textoBase}
-          onChange={(e) => setTextoBase(e.target.value)}
-          className="w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-lg text-white placeholder-white/30 transition focus:border-brand-500 focus:outline-none"
-        />
+      {/* O que é a foto e Preço */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <label
+            htmlFor="texto-produto"
+            className="block text-lg font-semibold text-white"
+          >
+            O que é essa foto?
+          </label>
+          <input
+            id="texto-produto"
+            type="text"
+            placeholder="Ex: Brigadeiro de morango com cobertura"
+            value={textoBase}
+            onChange={(e) => setTextoBase(e.target.value)}
+            className="w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-lg text-white placeholder-white/30 transition focus:border-brand-500 focus:outline-none"
+          />
+        </div>
+        
+        <div className="space-y-2">
+          <label
+            htmlFor="preco-produto"
+            className="block text-lg font-semibold text-white flex items-center gap-2"
+          >
+            Preço (opcional)
+          </label>
+          <input
+            id="preco-produto"
+            type="text"
+            placeholder="Ex: R$ 45,90"
+            value={preco}
+            onChange={(e) => setPreco(e.target.value)}
+            className="w-full rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-lg text-white placeholder-white/30 transition focus:border-brand-500 focus:outline-none"
+          />
+        </div>
       </div>
 
       {/* Barra de progresso */}

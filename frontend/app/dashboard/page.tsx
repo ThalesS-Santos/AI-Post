@@ -25,6 +25,12 @@ const QUANTIDADES = [
   { valor: 30, titulo: "30 posts", sub: "Um mês inteiro", icon: "🗓️" },
 ];
 
+const ESTILOS_IMAGEM = [
+  "Realista", "3D Render", "Minimalista", "Cartoon", "Pixel Art",
+  "Vintage", "Preto e Branco", "Cyberpunk", "Aquarela", "Óleo sobre Tela",
+  "Neon", "Analógico", "Low Poly", "Flat", "Grunge"
+];
+
 export default function DashboardPage() {
   const { toast } = useToast();
   const router = useRouter();
@@ -35,6 +41,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [posts, setPosts] = useState<PostContent[]>([]);
   const [checandoSetup, setChecandoSetup] = useState(true);
+  const [estilosSelecionados, setEstilosSelecionados] = useState<string[]>([]);
 
   // Onboarding: só entra no painel quem já cadastrou marca + fotos.
   useEffect(() => {
@@ -52,6 +59,18 @@ export default function DashboardPage() {
 
   if (!ready || !user || checandoSetup) return <PageLoader />;
 
+  function toggleEstilo(estilo: string) {
+    if (estilosSelecionados.includes(estilo)) {
+      setEstilosSelecionados(estilosSelecionados.filter(e => e !== estilo));
+    } else {
+      if (estilosSelecionados.length >= 2) {
+        toast("Você só pode escolher até 2 estilos simultaneamente.", "error");
+        return;
+      }
+      setEstilosSelecionados([...estilosSelecionados, estilo]);
+    }
+  }
+
   async function handleGenerate() {
     if (!foco.trim()) {
       toast("Escreva sobre o que você quer postar.", "error");
@@ -63,7 +82,8 @@ export default function DashboardPage() {
       const { posts: novos, gerados, solicitados } = await gerarPosts(
         user!.id,
         foco,
-        quantidade
+        quantidade,
+        estilosSelecionados
       );
       setPosts(novos);
       if (gerados < solicitados) {
@@ -162,6 +182,32 @@ export default function DashboardPage() {
                     </span>
                   </button>
                 ))}
+              </div>
+            </div>
+
+            {/* Estilos */}
+            <div className="mt-8">
+              <label className="mb-3 block text-lg font-semibold text-white">
+                3. Estilo Visual <span className="text-sm font-normal text-white/40">(Opcional, escolha até 2)</span>
+              </label>
+              <div className="flex flex-wrap items-center gap-2">
+                {ESTILOS_IMAGEM.map((estilo) => {
+                  const isSelected = estilosSelecionados.includes(estilo);
+                  return (
+                    <button
+                      key={estilo}
+                      onClick={() => toggleEstilo(estilo)}
+                      className={[
+                        "rounded-full border px-4 py-2 text-base transition-colors",
+                        isSelected
+                          ? "border-brand-500 bg-brand-600 text-white"
+                          : "border-white/10 bg-white/5 text-white/70 hover:border-brand-500 hover:text-white"
+                      ].join(" ")}
+                    >
+                      {estilo}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 

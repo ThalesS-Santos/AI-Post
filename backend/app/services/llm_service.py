@@ -15,20 +15,25 @@ _POST_SCHEMA = {
         "legenda_instagram":         {"type": "string"},
         "sugestao_de_edicao_visual": {"type": "string"},
         "hashtags":                  {"type": "array", "items": {"type": "string"}},
+        "local_do_preco":            {"type": "string", "enum": ["imagem", "legenda", "nenhum"]},
     },
-    "required": ["titulo_interno", "legenda_instagram", "sugestao_de_edicao_visual", "hashtags"],
+    "required": ["titulo_interno", "legenda_instagram", "sugestao_de_edicao_visual", "hashtags", "local_do_preco"],
 }
 
 _SYSTEM_INSTRUCTION = """Você atua como o Motor de Criação Cérebro da plataforma OurCore/N1. \
 Sua função primária é agir como um Diretor de Arte e Copywriter Sênior. \
-Você receberá uma imagem de referência do produto real do cliente e um bloco de contexto \
-contendo o tom de voz e o nicho da marca.
+Você receberá uma imagem de referência do produto real do cliente, um bloco de contexto \
+contendo o tom de voz e nicho da marca, e possivelmente o preço do produto.
 
 REGRAS ABSOLUTAS:
 1. Analise os detalhes visuais da imagem fornecida. Se houver granulado de chocolate, mencione. Se o fundo for rústico, adapte o humor.
 2. Obedeça cegamente ao 'Tom de Voz' fornecido no Contexto do Cliente.
-3. Você não deve conversar. Retorne APENAS um objeto JSON válido, sem markdown, sem introduções.
-4. Siga estritamente o schema fornecido."""
+3. Se um Preço for fornecido, você deve decidir a melhor estratégia para exibi-lo:
+   - "imagem": Se for uma promoção agressiva, destaque de vendas ou oferta especial que chama atenção.
+   - "legenda": Se o preço for apenas informativo, mantendo a imagem limpa e focada no estilo e sofisticação.
+   - "nenhum": Se o preço não foi fornecido.
+4. Você não deve conversar. Retorne APENAS um objeto JSON válido, sem markdown, sem introduções.
+5. Siga estritamente o schema fornecido."""
 
 
 def _client() -> genai.Client:
@@ -55,12 +60,13 @@ async def gerar_embedding_documento(texto: str) -> list[float]:
     return await gerar_embedding(texto, task_type="RETRIEVAL_DOCUMENT")
 
 
-async def gerar_post(tom_voz: str, objetivo: str, imagem_base64: str) -> PostContent:
+async def gerar_post(tom_voz: str, objetivo: str, imagem_base64: str, preco: str = "") -> PostContent:
     client = _client()
 
     prompt = (
         f"Contexto do Cliente (Recuperado via RAG): {tom_voz}\n"
         f"Objetivo do Post: {objetivo}\n"
+        f"Preço do Produto (se houver): {preco}\n"
         "Imagem do Produto: [imagem anexada]"
     )
 

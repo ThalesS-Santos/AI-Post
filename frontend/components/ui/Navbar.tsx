@@ -34,13 +34,19 @@ export function Navbar({ cta }: NavbarProps) {
           {user ? (
             <div className="flex items-center gap-3 md:gap-4">
               <span className="hidden max-w-[12rem] truncate text-base text-white/50 sm:block">
-                {user.email}
+                {user.user_metadata?.full_name || user.email}
               </span>
               <Link
-                href="/dashboard"
+                href="/painel"
                 className="hidden rounded-xl px-4 py-2.5 text-base font-semibold text-white/70 transition-colors hover:text-white md:block"
               >
                 Painel
+              </Link>
+              <Link
+                href="/dashboard"
+                className="hidden rounded-xl bg-brand-600 px-4 py-2.5 text-base font-semibold text-white transition-colors hover:bg-brand-500 md:block"
+              >
+                Criar Posts
               </Link>
               <button
                 onClick={handleSignOut}

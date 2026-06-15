@@ -25,6 +25,7 @@ export default function SetupPage() {
   const [saving, setSaving] = useState(false);
   const [produtos, setProdutos] = useState<ProdutoSalvo[]>([]);
   const [initDone, setInitDone] = useState(false);
+  const [logoFile, setLogoFile] = useState<File | null>(null);
   const [form, setForm] = useState({
     nomeMarca: "",
     tomVoz: "",
@@ -79,6 +80,11 @@ export default function SetupPage() {
         nicho: form.nicho,
         descricao: form.descricao,
       });
+      if (logoFile) {
+        toast("Salvando logo...", "info");
+        const api = await import("@/lib/api");
+        await api.uploadLogo(user!.id, logoFile);
+      }
       toast("Tudo certo! Agora suas fotos.", "success");
       setStep(2);
     } catch (error: unknown) {
@@ -205,6 +211,19 @@ export default function SetupPage() {
                   onChange={handleChange}
                   rows={3}
                   className="w-full resize-none rounded-2xl border border-white/10 bg-white/5 px-5 py-4 text-lg text-white placeholder-white/30 transition focus:border-brand-500 focus:outline-none"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-lg font-semibold text-white">
+                  Sua Logo <span className="text-base font-normal text-white/40">(opcional)</span>
+                </label>
+                <p className="text-base text-white/45">Se você enviar sua logo, ela aparecerá automaticamente em todas as imagens geradas.</p>
+                <input
+                  type="file"
+                  accept="image/png, image/jpeg, image/webp"
+                  onChange={(e) => setLogoFile(e.target.files?.[0] || null)}
+                  className="block w-full text-white file:mr-4 file:rounded-full file:border-0 file:bg-brand-600 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white hover:file:bg-brand-500"
                 />
               </div>
 
