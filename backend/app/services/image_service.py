@@ -11,13 +11,20 @@ import httpx
 
 from ..core.config import get_settings
 
-_IMAGE_MODEL = "imagen-4.0-generate-001"
+_IMAGE_MODEL = "gemini-3.1-flash-image"
 
 _indisponivel = False
 
 
 def _client() -> genai.Client:
-    return genai.Client(api_key=get_settings().GEMINI_API_KEY)
+    settings = get_settings()
+    key = settings.VERTEX_API_KEY
+    if key and key.startswith("AQ."):
+        return genai.Client(vertexai=True, api_key=key)
+    fallback_key = settings.GEMINI_API_KEY
+    if fallback_key and fallback_key.startswith("AQ."):
+        return genai.Client(vertexai=True, api_key=fallback_key)
+    return genai.Client(api_key=fallback_key)
 
 
 def imagem_indisponivel() -> bool:
@@ -100,11 +107,10 @@ async def gerar_imagem_ia(
     logo_url: str = "",
     preco: str = "",
     local_do_preco: str = "nenhum",
+    aspect_ratio: str = "1:1",
+    referencia_b64: str = None,
+    tom_voz: str = "",
 ) -> str | None:
-    global _indisponivel
-    if _indisponivel:
-        return None
-
     client = _client()
 
     if estilos_imagem is None:
@@ -113,7 +119,8 @@ async def gerar_imagem_ia(
     estilos_str = " e ".join(estilos_imagem) if estilos_imagem else "Realista de alta definição"
 
     prompt = (
-        f"Crie uma imagem de marketing de altíssimo impacto visual, projetada para reter a atenção e parar a rolagem no Instagram. "
+        f"Crie uma imagem de marketing de altíssimo impacto visual, projetada para reter a atenção e parar a rolagem nas redes sociais. "
+        f"A imagem DEVE transmitir e refletir fielmente o tom de voz e a identidade da marca: '{tom_voz}'. "
         f"Produto em destaque: {descricao_produto or 'Produto principal'}. "
         f"Estilo Artístico OBRIGATÓRIO: {estilos_str}. A imagem DEVE refletir perfeitamente esse(s) estilo(s) visual(is). "
         f"Contexto da publicação: {legenda}. "
@@ -121,22 +128,53 @@ async def gerar_imagem_ia(
         "Não inclua textos, letras, símbolos ou palavras escritas na imagem. Foco 100% na arte visual."
     )
 
-    try:
-        response = await asyncio.to_thread(
-            lambda: client.models.generate_images(
-                model=_IMAGE_MODEL,
-                prompt=prompt,
-                config=types.GenerateImagesConfig(
-                    number_of_images=1,
-                    aspect_ratio="1:1"
-                ),
+    contents = [prompt]
+    if produto_b64:
+        try:
+            contents.append(
+                types.Part.from_bytes(
+                    data=base64.b64decode(produto_b64),
+                    mime_type="image/jpeg"
+                )
             )
-        )
-        if response.generated_images:
-            gen_img = response.generated_images[0]
-            if gen_img.image and gen_img.image.image_bytes:
-                img_bytes = gen_img.image.image_bytes
-                
+        except Exception as e:
+            print(f"[ImageService] Erro ao decodificar produto_b64: {e}")
+
+    if referencia_b64:
+        prompt += "\nMANTENHA A CONSISTÊNCIA VISUAL ABSOLUTA: Use a segunda imagem enviada como guia estético para iluminação, paleta de cores e estilo artístico geral."
+        try:
+            contents.append(
+                types.Part.from_bytes(
+                    data=base64.b64decode(referencia_b64),
+                    mime_type="image/jpeg"
+                )
+            )
+        except Exception as e:
+            print(f"[ImageService] Erro ao decodificar referencia_b64: {e}")
+
+    retries = 3
+    delay = 2.0
+    for attempt in range(retries):
+        try:
+            response = await asyncio.to_thread(
+                lambda: client.models.generate_content(
+                    model=_IMAGE_MODEL,
+                    contents=contents,
+                    config=types.GenerateContentConfig(
+                        response_modalities=["IMAGE"],
+                        image_config=types.ImageConfig(
+                            aspect_ratio=aspect_ratio
+                        )
+                    )
+                )
+            )
+            img_bytes = None
+            if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+                for part in response.candidates[0].content.parts:
+                    if part.inline_data:
+                        img_bytes = part.inline_data.data
+                        break
+            if img_bytes:
                 logo_bytes = None
                 if logo_url:
                     logo_bytes = await _baixar_imagem(logo_url)
@@ -145,14 +183,17 @@ async def gerar_imagem_ia(
                     img_bytes = await asyncio.to_thread(_aplicar_logo_e_preco, img_bytes, logo_bytes, preco, local_do_preco)
 
                 return base64.b64encode(img_bytes).decode("utf-8")
-    except ClientError as exc:
-        msg = str(exc)
-        print(f"[ImageService] ClientError: {msg}")
-        if exc.code == 404 or "limit: 0" in msg or "free_tier" in msg.lower():
-            _indisponivel = True
-        return None
-    except Exception as exc:
-        print(f"[ImageService] Exception: {exc}")
-        return None
+        except ClientError as exc:
+            print(f"[ImageService] ClientError na tentativa {attempt+1}/{retries}: {exc}")
+            if attempt < retries - 1:
+                await asyncio.sleep(delay)
+            else:
+                return None
+        except Exception as exc:
+            print(f"[ImageService] Exception na tentativa {attempt+1}/{retries}: {exc}")
+            if attempt < retries - 1:
+                await asyncio.sleep(delay)
+            else:
+                return None
 
     return None

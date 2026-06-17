@@ -1,4 +1,4 @@
-export function PageLoader() {
+export function PageLoader({ label = "Carregando…" }: { label?: string } = {}) {
   return (
     <div className="flex min-h-screen items-center justify-center bg-surface-900">
       <div className="flex flex-col items-center gap-4">
@@ -22,7 +22,7 @@ export function PageLoader() {
             d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
           />
         </svg>
-        <p className="text-lg text-white/50">Carregando…</p>
+        <p className="text-lg text-white/50">{label}</p>
       </div>
     </div>
   );

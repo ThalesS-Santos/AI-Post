@@ -20,6 +20,7 @@ export interface PostContent {
   produto_url?: string | null;
   imagem_gerada_base64?: string | null;
   imagem_disponivel?: boolean;
+  imagens_carrossel_base64?: string[];
 }
 
 export interface GerarPostsResultado {
@@ -210,6 +211,40 @@ export async function updateMarca(payload: {
     nicho: payload.nicho,
     descricao: payload.descricao,
   });
+}
+
+export interface PostSalvo {
+  id: string;
+  cliente_id: string;
+  titulo_interno: string;
+  legenda_instagram: string;
+  sugestao_de_edicao_visual: string;
+  hashtags: string[];
+  local_do_preco: string;
+  produto_id?: string | null;
+  produto_url?: string | null;
+  imagem_url?: string | null;
+  imagens_carrossel_urls: string[];
+  imagem_disponivel: boolean;
+  created_at: string;
+}
+
+export async function salvarPost(clienteId: string, post: PostContent): Promise<{ id: string; status: string }> {
+  const { data } = await api.post("/api/v1/posts/salvar", {
+    cliente_id: clienteId,
+    ...post
+  });
+  return data;
+}
+
+export async function listarPostsSalvos(clienteId: string): Promise<PostSalvo[]> {
+  const { data } = await api.get(`/api/v1/posts/${clienteId}`);
+  return data.posts as PostSalvo[];
+}
+
+export async function deletarPostSalvo(postId: string): Promise<{ status: string }> {
+  const { data } = await api.delete(`/api/v1/posts/${postId}`);
+  return data;
 }
 
 export default api;

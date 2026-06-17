@@ -17,15 +17,23 @@ import {
   uploadLogo,
   uploadProduto,
   MarcaSetup,
+  listarPostsSalvos,
+  deletarPostSalvo,
+  PostSalvo,
 } from "@/lib/api";
 
 export default function PainelPage() {
   const { user, loading: authLoading, updateUserName } = useAuth();
   const router = useRouter();
-  const { addToast } = useToast();
+  const { toast: addToast } = useToast();
 
-  const [activeTab, setActiveTab] = useState<"perfil" | "marca" | "fotos">("fotos");
+  const [activeTab, setActiveTab] = useState<"perfil" | "marca" | "fotos" | "posts_salvos">("fotos");
   const [loadingData, setLoadingData] = useState(true);
+
+  // Posts Salvos State
+  const [postsSalvos, setPostsSalvos] = useState<PostSalvo[]>([]);
+  const [copiedPostId, setCopiedPostId] = useState<string | null>(null);
+  const [expandedPosts, setExpandedPosts] = useState<Record<string, boolean>>({});
 
   // Perfil State
   const [userName, setUserName] = useState("");
@@ -73,12 +81,39 @@ export default function PainelPage() {
       } catch (err) {
         console.log("Marca não encontrada", err);
       }
+
+      try {
+        const posts = await listarPostsSalvos(user!.id);
+        setPostsSalvos(posts);
+      } catch (err) {
+        console.log("Erro ao carregar posts salvos", err);
+      }
     } catch (error: any) {
       addToast(error.message || "Erro ao carregar dados", "error");
     } finally {
       setLoadingData(false);
     }
   }
+
+  const handleDeletePostSalvo = async (id: string) => {
+    if (!confirm("Certeza que deseja excluir este post do histórico?")) return;
+    try {
+      await deletarPostSalvo(id);
+      addToast("Post excluído com sucesso!", "success");
+      setPostsSalvos(postsSalvos.filter((p) => p.id !== id));
+    } catch (err: any) {
+      addToast(err.message || "Não foi possível excluir o post.", "error");
+    }
+  };
+
+  const handleCopyLegendaSalva = (post: PostSalvo) => {
+    navigator.clipboard.writeText(
+      `${post.legenda_instagram}\n\n${post.hashtags.map((h) => `#${h}`).join(" ")}`
+    );
+    setCopiedPostId(post.id);
+    addToast("Legenda copiada!", "success");
+    setTimeout(() => setCopiedPostId(null), 2000);
+  };
 
   const handleSavePerfil = async () => {
     try {
@@ -177,6 +212,14 @@ export default function PainelPage() {
                 }`}
               >
                 Catálogo de Fotos
+              </button>
+              <button
+                onClick={() => setActiveTab("posts_salvos")}
+                className={`rounded-lg px-4 py-3 text-left font-semibold transition-colors ${
+                  activeTab === "posts_salvos" ? "bg-brand-600 text-white" : "text-white/60 hover:bg-white/5"
+                }`}
+              >
+                Posts Salvos 🔖
               </button>
               <button
                 onClick={() => setActiveTab("marca")}
@@ -398,6 +441,68 @@ export default function PainelPage() {
                           </div>
                         </div>
                       ))}
+                    </div>
+                  )}
+                </motion.div>
+              )}
+
+              {activeTab === "posts_salvos" && (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-6">
+                  <h2 className="text-2xl font-bold text-white">Posts Salvos 🔖</h2>
+                  
+                  {postsSalvos.length === 0 ? (
+                    <p className="text-center text-white/60 py-10">Você ainda não tem nenhum post salvo no histórico.</p>
+                  ) : (
+                    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3">
+                      {postsSalvos.map((p) => {
+                        const isExpanded = !!expandedPosts[p.id];
+                        return (
+                          <div key={p.id} className="flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-white/5 h-full">
+                            {p.imagem_url && (
+                              <div className="relative aspect-square w-full overflow-hidden bg-slate-950">
+                                <img src={p.imagem_url} alt={p.titulo_interno} className="h-full w-full object-cover" />
+                                <span className="absolute left-3 top-3 rounded-full bg-brand-600/80 px-3 py-1 text-xs font-semibold text-white backdrop-blur">
+                                  {p.imagem_disponivel ? "✨ IA" : "📷 Foto"}
+                                </span>
+                              </div>
+                            )}
+                            <div className="flex flex-1 flex-col justify-between p-4 gap-4">
+                              <div className="space-y-2">
+                                <h3 className="text-lg font-bold text-white leading-snug">{p.titulo_interno}</h3>
+                                <p className={`text-sm text-white/70 leading-relaxed whitespace-pre-wrap ${isExpanded ? "" : "line-clamp-4"}`}>{p.legenda_instagram}</p>
+                                {p.legenda_instagram && p.legenda_instagram.length > 150 && (
+                                  <button
+                                    onClick={() => setExpandedPosts((prev) => ({ ...prev, [p.id]: !isExpanded }))}
+                                    className="text-xs font-semibold text-brand-400 hover:text-brand-300 mt-1 block transition-colors"
+                                  >
+                                    {isExpanded ? "Ler menos" : "Ler mais"}
+                                  </button>
+                                )}
+                                <div className="flex flex-wrap gap-1.5 pt-2">
+                                  {p.hashtags.map((h) => (
+                                    <span key={h} className="text-xs text-brand-300 font-semibold bg-brand-900/30 px-2 py-0.5 rounded-full">#{h}</span>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="mt-auto flex gap-2">
+                                <button
+                                  onClick={() => handleCopyLegendaSalva(p)}
+                                  className="flex-1 rounded-lg bg-brand-600 py-2.5 text-sm font-bold text-white hover:bg-brand-500 transition-colors"
+                                >
+                                  {copiedPostId === p.id ? "✓ Copiado" : "📋 Copiar Legenda"}
+                                </button>
+                                <button
+                                  onClick={() => handleDeletePostSalvo(p.id)}
+                                  className="rounded-lg bg-red-500/20 px-3 py-2.5 text-sm font-semibold text-red-400 hover:bg-red-500/40 transition-colors"
+                                  title="Excluir do Histórico"
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                 </motion.div>

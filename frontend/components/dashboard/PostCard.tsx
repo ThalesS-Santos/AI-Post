@@ -6,6 +6,7 @@ import {
   regenerarImagem,
   regenerarLegenda,
   mensagemErro,
+  salvarPost,
   type PostContent,
 } from "@/lib/api";
 import { useToast } from "@/lib/toast-context";
@@ -24,10 +25,32 @@ export function PostCard({ post, index, foco, clienteId, onUpdate }: PostCardPro
   const { toast } = useToast();
   const [busy, setBusy] = useState<Acao>(null);
   const [copied, setCopied] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
 
-  const temIA = post.imagem_disponivel && !!post.imagem_gerada_base64;
+  async function handleSalvar() {
+    setSaving(true);
+    try {
+      await salvarPost(clienteId, post);
+      setSaved(true);
+      toast("Post salvo com sucesso! 🔖", "success");
+    } catch (err) {
+      toast(mensagemErro(err, "Não consegui salvar o post."), "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const [carouselIndex, setCarouselIndex] = useState(0);
+
+  const isCarousel = post.imagens_carrossel_base64 && post.imagens_carrossel_base64.length > 0;
+  const currentImageB64 = isCarousel 
+    ? post.imagens_carrossel_base64![carouselIndex] 
+    : post.imagem_gerada_base64;
+
+  const temIA = post.imagem_disponivel && !!currentImageB64;
   const imgSrc = temIA
-    ? `data:image/png;base64,${post.imagem_gerada_base64}`
+    ? `data:image/png;base64,${currentImageB64}`
     : post.produto_url || null;
 
   function copyLegenda() {
@@ -129,7 +152,11 @@ export function PostCard({ post, index, foco, clienteId, onUpdate }: PostCardPro
           <img
             src={imgSrc}
             alt={post.titulo_interno}
-            className="aspect-square w-full object-cover"
+            className={
+              post.titulo_interno.toLowerCase().includes("storie")
+                ? "aspect-[9/16] w-full object-cover"
+                : "aspect-square w-full object-cover"
+            }
           />
           <span
             className={[
@@ -141,6 +168,38 @@ export function PostCard({ post, index, foco, clienteId, onUpdate }: PostCardPro
           >
             {temIA ? "✨ Imagem por IA" : "📷 Sua foto"}
           </span>
+
+          {/* Carousel Controls */}
+          {isCarousel && post.imagens_carrossel_base64!.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCarouselIndex((prev) => (prev > 0 ? prev - 1 : post.imagens_carrossel_base64!.length - 1));
+                }}
+                className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/60 p-2 text-base text-white hover:bg-black/85 transition-colors"
+                title="Imagem anterior"
+              >
+                ◀
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCarouselIndex((prev) => (prev < post.imagens_carrossel_base64!.length - 1 ? prev + 1 : 0));
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/60 p-2 text-base text-white hover:bg-black/85 transition-colors"
+                title="Próxima imagem"
+              >
+                ▶
+              </button>
+              <span className="absolute bottom-3 right-3 rounded-lg bg-black/70 px-2.5 py-1 text-xs font-bold text-white backdrop-blur-sm">
+                {carouselIndex + 1} / {post.imagens_carrossel_base64!.length}
+              </span>
+            </>
+          )}
+
           {busy === "imagem" || busy === "tudo" ? (
             <div className="absolute inset-0 grid place-items-center bg-black/60 text-lg font-semibold text-white">
               Refazendo imagem…
@@ -213,17 +272,31 @@ export function PostCard({ post, index, foco, clienteId, onUpdate }: PostCardPro
         />
       </div>
 
-      {/* Copiar */}
-      <button
-        onClick={copyLegenda}
-        disabled={anyBusy}
-        className={[
-          "mt-auto w-full rounded-2xl py-4 text-lg font-bold transition-all disabled:opacity-50",
-          copied ? "bg-green-600/80 text-white" : "bg-brand-600 text-white hover:bg-brand-500",
-        ].join(" ")}
-      >
-        {copied ? "✓ Copiado!" : "📋 Copiar para o Instagram"}
-      </button>
+      {/* Ações Finais */}
+      <div className="mt-auto grid grid-cols-2 gap-3">
+        <button
+          onClick={copyLegenda}
+          disabled={anyBusy}
+          className={[
+            "w-full rounded-2xl py-4 text-base font-bold transition-all disabled:opacity-50",
+            copied ? "bg-green-600/80 text-white" : "bg-white/10 hover:bg-white/20 text-white border border-white/10",
+          ].join(" ")}
+        >
+          {copied ? "✓ Copiado!" : "📋 Copiar Legenda"}
+        </button>
+        <button
+          onClick={handleSalvar}
+          disabled={anyBusy || saving || saved}
+          className={[
+            "w-full rounded-2xl py-4 text-base font-bold transition-all disabled:opacity-50",
+            saved 
+              ? "bg-green-600/85 text-white cursor-not-allowed" 
+              : "bg-brand-600 hover:bg-brand-500 text-white",
+          ].join(" ")}
+        >
+          {saving ? "⏳ Salvando..." : saved ? "✓ Salvo" : "🔖 Salvar Post"}
+        </button>
+      </div>
     </motion.div>
   );
 }

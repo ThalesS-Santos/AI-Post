@@ -72,8 +72,8 @@ export default function DashboardPage() {
   }
 
   async function handleGenerate() {
-    if (!foco.trim()) {
-      toast("Escreva sobre o que você quer postar.", "error");
+    if (quantidade === 1 && !foco.trim()) {
+      toast("Escreva sobre o que você quer postar para gerar um post único.", "error");
       return;
     }
     setLoading(true);
@@ -131,12 +131,12 @@ export default function DashboardPage() {
             {/* Tema */}
             <div className="mt-8">
               <label htmlFor="tema" className="mb-2 block text-lg font-semibold text-white">
-                1. Qual o tema?
+                1. Qual o tema? {quantidade > 1 && <span className="text-sm font-normal text-white/40">(Opcional)</span>}
               </label>
               <input
                 id="tema"
                 type="text"
-                placeholder="Ex: Promoção de Dia dos Namorados"
+                placeholder={quantidade > 1 ? "Deixe em branco para temas livres ou digite um foco geral" : "Ex: Promoção de Dia dos Namorados"}
                 value={foco}
                 onChange={(e) => setFoco(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleGenerate()}

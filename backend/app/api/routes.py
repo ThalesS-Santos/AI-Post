@@ -1,5 +1,7 @@
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile, status, Depends
 from google.genai.errors import ClientError
+import base64
+import uuid
 
 from ..core.security import verify_token
 from ..models.database import (
@@ -10,6 +12,11 @@ from ..models.database import (
     atualizar_produto,
     deletar_produto,
     atualizar_regra_marca,
+    garantir_rag_store,
+    salvar_post_supabase,
+    listar_posts_supabase,
+    deletar_post_supabase,
+    fazer_upload_storage,
 )
 from ..schemas.post_schema import (
     BrandSetupRequest,
@@ -23,6 +30,9 @@ from ..schemas.post_schema import (
     UpdateProdutoRequest,
     UpdateBrandRequest,
     BrandSetupResponse,
+    SalvarPostRequest,
+    ListarPostsResponse,
+    PostSalvoResponse,
 )
 from ..services.llm_service import gerar_embedding_documento
 from ..services.rag_service import (
@@ -134,11 +144,19 @@ async def status_setup(cliente_id: str, token: dict = Depends(verify_token)):
     """Diz se o usuário já cadastrou a marca e as fotos (controla o onboarding)."""
     if token["sub"] != cliente_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso não autorizado.")
+    
+    # Garante a criação da File Search Store do RAG nativo assim que o usuário faz login
+    await garantir_rag_store(cliente_id)
+    
     marca = await buscar_regra_marca(cliente_id)
     produtos = await listar_produtos(cliente_id)
+    
+    # Considera marca cadastrada se o texto descritivo estiver preenchido (não vazio)
+    tem_marca = marca is not None and marca.get("texto_base", "").strip() != ""
+    
     return {
         "status": "success",
-        "tem_marca": marca is not None,
+        "tem_marca": tem_marca,
         "tem_fotos": len(produtos) > 0,
         "total_fotos": len(produtos),
     }
@@ -352,3 +370,88 @@ async def upload_logo_endpoint(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Não foi possível salvar a logo: {exc}",
         )
+
+
+@router.post("/posts/salvar")
+async def salvar_post(payload: SalvarPostRequest, token: dict = Depends(verify_token)):
+    if token["sub"] != str(payload.cliente_id):
+         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso não autorizado.")
+    
+    try:
+        imagem_url = None
+        if payload.imagem_gerada_base64:
+            img_bytes = base64.b64decode(payload.imagem_gerada_base64)
+            nome_arquivo = f"gerado_{uuid.uuid4()}.jpg"
+            imagem_url = await fazer_upload_storage("posts-gerados", f"{payload.cliente_id}/posts/{nome_arquivo}", img_bytes)
+        elif payload.produto_url:
+            imagem_url = payload.produto_url
+            
+        carrossel_urls = []
+        if payload.imagens_carrossel_base64:
+            for i, img_b64 in enumerate(payload.imagens_carrossel_base64):
+                c_bytes = base64.b64decode(img_b64)
+                nome_c = f"gerado_{uuid.uuid4()}_slide_{i+1}.jpg"
+                c_url = await fazer_upload_storage("posts-gerados", f"{payload.cliente_id}/posts/{nome_c}", c_bytes)
+                carrossel_urls.append(c_url)
+                
+        registro = await salvar_post_supabase(
+            cliente_id=str(payload.cliente_id),
+            titulo_interno=payload.titulo_interno,
+            legenda_instagram=payload.legenda_instagram,
+            sugestao_de_edicao_visual=payload.sugestao_de_edicao_visual,
+            hashtags=payload.hashtags,
+            local_do_preco=payload.local_do_preco,
+            produto_id=payload.produto_id,
+            produto_url=payload.produto_url,
+            imagem_url=imagem_url,
+            imagens_carrossel_urls=carrossel_urls,
+            imagem_disponivel=payload.imagem_disponivel
+        )
+        return {"status": "success", "id": registro["id"]}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Não foi possível salvar o post: {exc}"
+        )
+
+
+@router.get("/posts/{cliente_id}", response_model=ListarPostsResponse)
+async def listar_posts_endpoint(cliente_id: str, token: dict = Depends(verify_token)):
+    if token["sub"] != cliente_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso não autorizado.")
+    try:
+        registros = await listar_posts_supabase(cliente_id)
+        posts = [
+            PostSalvoResponse(
+                id=r["id"],
+                cliente_id=r["cliente_id"],
+                titulo_interno=r["titulo_interno"],
+                legenda_instagram=r["legenda_instagram"],
+                sugestao_de_edicao_visual=r["sugestao_de_edicao_visual"],
+                hashtags=r["hashtags"],
+                local_do_preco=r["local_do_preco"],
+                produto_id=r.get("produto_id"),
+                produto_url=r.get("produto_url"),
+                imagem_url=r.get("imagem_url"),
+                imagens_carrossel_urls=r.get("imagens_carrossel_urls") or [],
+                imagem_disponivel=r["imagem_disponivel"],
+                created_at=r["created_at"]
+            )
+            for r in registros
+        ]
+        return ListarPostsResponse(status="success", posts=posts)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.delete("/posts/{post_id}")
+async def deletar_post_endpoint(post_id: str, token: dict = Depends(verify_token)):
+    try:
+        sucesso = await deletar_post_supabase(post_id)
+        if not sucesso:
+            raise HTTPException(status_code=404, detail="Post não encontrado")
+        return {"status": "success"}
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
