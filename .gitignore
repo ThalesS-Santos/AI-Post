@@ -51,3 +51,8 @@ desktop.ini
 *.tmp
 tmp/
 **/tmp/
+
+# Uploads and local data
+backend/app/static/uploads/
+backend/product_img_*.jpg
+backend/db.json
