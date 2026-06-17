@@ -355,16 +355,16 @@ async def fazer_upload_storage(
     dados: bytes,
     content_type: str = "image/jpeg",
 ) -> str:
-    # Salva as imagens localmente na pasta static/uploads/ (não poluímos o Storage do Supabase)
-    upload_dir = Path(__file__).resolve().parents[1] / "static" / "uploads"
-    safe_caminho = caminho.replace("/", "_")
-    target_file = upload_dir / safe_caminho
-    target_file.parent.mkdir(parents=True, exist_ok=True)
-    
-    with open(target_file, "wb") as f:
-        f.write(dados)
-        
-    return f"http://localhost:8000/static/uploads/{safe_caminho}"
+    try:
+        client = _get_client()
+        client.storage.from_(bucket).upload(caminho, dados, {"content-type": content_type})
+
+        settings = get_settings()
+        url = f"{settings.SUPABASE_URL}/storage/v1/object/public/{bucket}/{caminho}"
+        return url
+    except Exception as e:
+        print(f"[Database] Erro ao fazer upload para Supabase Storage: {e}")
+        raise
 
 
 async def garantir_rag_store(cliente_id: str) -> str:
