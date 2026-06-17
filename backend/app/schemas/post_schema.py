@@ -22,6 +22,7 @@ class PostContent(BaseModel):
     produto_url: Optional[str] = None
     imagem_gerada_base64: Optional[str] = None
     imagem_disponivel: bool = False
+    imagens_carrossel_base64: List[str] = Field(default_factory=list)
 
 
 class GeneratePostResponse(BaseModel):
@@ -91,3 +92,48 @@ class BrandSetupResponse(BaseModel):
     nicho: str
     descricao: str
     url_logo: str
+
+# --- Novos Schemas Estruturados para Planejamento ---
+from typing import Literal
+
+class ConteudoMidia(BaseModel):
+    tipo: Literal["post_unico", "carrossel", "storie"] = Field(
+        description="O formato do conteúdo na rede social."
+    )
+    numero_imagens_carrossel: Optional[int] = Field(
+        default=None, 
+        description="Se o tipo for 'carrossel', defina o número de imagens (ex: 4). Caso contrário, deixe nulo."
+    )
+    descricao_visual: str = Field(
+        description="Descrição detalhada do que deve aparecer na imagem/arte ou no frame do Storie."
+    )
+    elementos_storie: Optional[str] = Field(
+        default=None,
+        description="Se for Storie, indique elementos interativos (ex: 'Enquete: Você prefere A ou B?', 'Caixinha de perguntas', 'Link')."
+    )
+    legenda: str = Field(
+        description="Texto final da legenda do post ou roteiro falado/escrito do storie. Deve seguir RIGOROSAMENTE o tom de voz da empresa informado no prompt."
+    )
+    nome_produto_referenciado: Optional[str] = Field(
+        default=None,
+        description="Nome exato do produto que foi referenciado neste post (baseado no catálogo do File Search), ou null se for um post genérico institucional/conteúdo."
+    )
+    local_do_preco: Literal["imagem", "legenda", "nenhum"] = Field(
+        default="nenhum",
+        description="Onde o preço deve ser exibido: 'imagem' para destaque, 'legenda' para texto informativo, ou 'nenhum' se não houver preço."
+    )
+    hashtags: List[str] = Field(
+        default_factory=list,
+        description="Lista de hashtags sugeridas para esta postagem."
+    )
+
+class DiaPlanejamento(BaseModel):
+    dia_numero: int = Field(description="O número do dia no cronograma (ex: 1, 2, 3...)")
+    conteudos: List[ConteudoMidia] = Field(
+        description="Lista de conteúdos planejados para este dia específico (mínimo 1, máximo 2 se houver post e storie)."
+    )
+
+class PlanejamentoSocialMedia(BaseModel):
+    empresa_nome: str = Field(description="Nome da empresa analisada.")
+    tom_de_voz_aplicado: str = Field(description="Breve justificativa de como o tom de voz foi adaptado nas legendas.")
+    cronograma: List[DiaPlanejamento] = Field(description="Lista contendo o planejamento dia após dia.")

@@ -20,6 +20,7 @@ export interface PostContent {
   produto_url?: string | null;
   imagem_gerada_base64?: string | null;
   imagem_disponivel?: boolean;
+  imagens_carrossel_base64?: string[];
 }
 
 export interface GerarPostsResultado {

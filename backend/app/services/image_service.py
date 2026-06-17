@@ -11,13 +11,20 @@ import httpx
 
 from ..core.config import get_settings
 
-_IMAGE_MODEL = "imagen-4.0-generate-001"
+_IMAGE_MODEL = "gemini-3.1-flash-image"
 
 _indisponivel = False
 
 
 def _client() -> genai.Client:
-    return genai.Client(api_key=get_settings().GEMINI_API_KEY)
+    settings = get_settings()
+    key = settings.VERTEX_API_KEY
+    if key and key.startswith("AQ."):
+        return genai.Client(vertexai=True, api_key=key)
+    fallback_key = settings.GEMINI_API_KEY
+    if fallback_key and fallback_key.startswith("AQ."):
+        return genai.Client(vertexai=True, api_key=fallback_key)
+    return genai.Client(api_key=fallback_key)
 
 
 def imagem_indisponivel() -> bool:
@@ -100,6 +107,8 @@ async def gerar_imagem_ia(
     logo_url: str = "",
     preco: str = "",
     local_do_preco: str = "nenhum",
+    aspect_ratio: str = "1:1",
+    referencia_b64: str = None,
 ) -> str | None:
     global _indisponivel
     if _indisponivel:
@@ -113,7 +122,7 @@ async def gerar_imagem_ia(
     estilos_str = " e ".join(estilos_imagem) if estilos_imagem else "Realista de alta definição"
 
     prompt = (
-        f"Crie uma imagem de marketing de altíssimo impacto visual, projetada para reter a atenção e parar a rolagem no Instagram. "
+        f"Crie uma imagem de marketing de altíssimo impacto visual, projetada para reter a atenção e parar a rolagem nas redes sociais. "
         f"Produto em destaque: {descricao_produto or 'Produto principal'}. "
         f"Estilo Artístico OBRIGATÓRIO: {estilos_str}. A imagem DEVE refletir perfeitamente esse(s) estilo(s) visual(is). "
         f"Contexto da publicação: {legenda}. "
@@ -121,21 +130,50 @@ async def gerar_imagem_ia(
         "Não inclua textos, letras, símbolos ou palavras escritas na imagem. Foco 100% na arte visual."
     )
 
+    contents = [prompt]
+    if produto_b64:
+        try:
+            contents.append(
+                types.Part.from_bytes(
+                    data=base64.b64decode(produto_b64),
+                    mime_type="image/jpeg"
+                )
+            )
+        except Exception as e:
+            print(f"[ImageService] Erro ao decodificar produto_b64: {e}")
+
+    if referencia_b64:
+        prompt += "\nMANTENHA A CONSISTÊNCIA VISUAL ABSOLUTA: Use a segunda imagem enviada como guia estético para iluminação, paleta de cores e estilo artístico geral."
+        try:
+            contents.append(
+                types.Part.from_bytes(
+                    data=base64.b64decode(referencia_b64),
+                    mime_type="image/jpeg"
+                )
+            )
+        except Exception as e:
+            print(f"[ImageService] Erro ao decodificar referencia_b64: {e}")
+
     try:
         response = await asyncio.to_thread(
-            lambda: client.models.generate_images(
+            lambda: client.models.generate_content(
                 model=_IMAGE_MODEL,
-                prompt=prompt,
-                config=types.GenerateImagesConfig(
-                    number_of_images=1,
-                    aspect_ratio="1:1"
-                ),
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    response_modalities=["IMAGE"],
+                    image_config=types.ImageConfig(
+                        aspect_ratio=aspect_ratio
+                    )
+                )
             )
         )
-        if response.generated_images:
-            gen_img = response.generated_images[0]
-            if gen_img.image and gen_img.image.image_bytes:
-                img_bytes = gen_img.image.image_bytes
+        img_bytes = None
+        if response.candidates and response.candidates[0].content and response.candidates[0].content.parts:
+            for part in response.candidates[0].content.parts:
+                if part.inline_data:
+                    img_bytes = part.inline_data.data
+                    break
+        if img_bytes:
                 
                 logo_bytes = None
                 if logo_url:

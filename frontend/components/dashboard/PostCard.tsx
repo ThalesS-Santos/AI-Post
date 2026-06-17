@@ -25,9 +25,16 @@ export function PostCard({ post, index, foco, clienteId, onUpdate }: PostCardPro
   const [busy, setBusy] = useState<Acao>(null);
   const [copied, setCopied] = useState(false);
 
-  const temIA = post.imagem_disponivel && !!post.imagem_gerada_base64;
+  const [carouselIndex, setCarouselIndex] = useState(0);
+
+  const isCarousel = post.imagens_carrossel_base64 && post.imagens_carrossel_base64.length > 0;
+  const currentImageB64 = isCarousel 
+    ? post.imagens_carrossel_base64![carouselIndex] 
+    : post.imagem_gerada_base64;
+
+  const temIA = post.imagem_disponivel && !!currentImageB64;
   const imgSrc = temIA
-    ? `data:image/png;base64,${post.imagem_gerada_base64}`
+    ? `data:image/png;base64,${currentImageB64}`
     : post.produto_url || null;
 
   function copyLegenda() {
@@ -129,7 +136,11 @@ export function PostCard({ post, index, foco, clienteId, onUpdate }: PostCardPro
           <img
             src={imgSrc}
             alt={post.titulo_interno}
-            className="aspect-square w-full object-cover"
+            className={
+              post.titulo_interno.toLowerCase().includes("storie")
+                ? "aspect-[9/16] w-full object-cover"
+                : "aspect-square w-full object-cover"
+            }
           />
           <span
             className={[
@@ -141,6 +152,38 @@ export function PostCard({ post, index, foco, clienteId, onUpdate }: PostCardPro
           >
             {temIA ? "✨ Imagem por IA" : "📷 Sua foto"}
           </span>
+
+          {/* Carousel Controls */}
+          {isCarousel && post.imagens_carrossel_base64!.length > 1 && (
+            <>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCarouselIndex((prev) => (prev > 0 ? prev - 1 : post.imagens_carrossel_base64!.length - 1));
+                }}
+                className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/60 p-2 text-base text-white hover:bg-black/85 transition-colors"
+                title="Imagem anterior"
+              >
+                ◀
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCarouselIndex((prev) => (prev < post.imagens_carrossel_base64!.length - 1 ? prev + 1 : 0));
+                }}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/60 p-2 text-base text-white hover:bg-black/85 transition-colors"
+                title="Próxima imagem"
+              >
+                ▶
+              </button>
+              <span className="absolute bottom-3 right-3 rounded-lg bg-black/70 px-2.5 py-1 text-xs font-bold text-white backdrop-blur-sm">
+                {carouselIndex + 1} / {post.imagens_carrossel_base64!.length}
+              </span>
+            </>
+          )}
+
           {busy === "imagem" || busy === "tudo" ? (
             <div className="absolute inset-0 grid place-items-center bg-black/60 text-lg font-semibold text-white">
               Refazendo imagem…

@@ -22,7 +22,7 @@ import {
 export default function PainelPage() {
   const { user, loading: authLoading, updateUserName } = useAuth();
   const router = useRouter();
-  const { addToast } = useToast();
+  const { toast: addToast } = useToast();
 
   const [activeTab, setActiveTab] = useState<"perfil" | "marca" | "fotos">("fotos");
   const [loadingData, setLoadingData] = useState(true);

@@ -13,7 +13,12 @@ JPEG_QUALITY = 85
 
 def _comprimir(raw: bytes) -> bytes:
     with Image.open(io.BytesIO(raw)) as img:
-        if img.mode not in ("RGB", "RGBA"):
+        if img.mode == "RGBA":
+            # Cria um fundo branco para colar a imagem transparente e não ficar com fundo preto
+            background = Image.new("RGB", img.size, (255, 255, 255))
+            background.paste(img, mask=img.split()[3]) # 3 é o canal alpha
+            img = background
+        elif img.mode != "RGB":
             img = img.convert("RGB")
         img.thumbnail((MAX_DIMENSION, MAX_DIMENSION), Image.LANCZOS)
         buf = io.BytesIO()

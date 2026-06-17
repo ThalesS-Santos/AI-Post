@@ -22,13 +22,12 @@ _POST_SCHEMA = {
 
 _SYSTEM_INSTRUCTION = """Você atua como o Motor de Criação Cérebro da plataforma OurCore/N1. \
 Sua função primária é agir como um Diretor de Arte e Copywriter Sênior. \
-Você receberá uma imagem de referência do produto real do cliente, um bloco de contexto \
-contendo o tom de voz e nicho da marca, e possivelmente o preço do produto.
+Você deve consultar o File Search fornecido para obter as regras de marca (tom de voz, nicho) e as informações do produto relevante para o post.
 
 REGRAS ABSOLUTAS:
-1. Analise os detalhes visuais da imagem fornecida. Se houver granulado de chocolate, mencione. Se o fundo for rústico, adapte o humor.
-2. Obedeça cegamente ao 'Tom de Voz' fornecido no Contexto do Cliente.
-3. Se um Preço for fornecido, você deve decidir a melhor estratégia para exibi-lo:
+1. Obedeça cegamente ao 'Tom de Voz' recuperado através do File Search.
+2. Analise os detalhes visuais do produto associado.
+3. Se um preço for encontrado no File Search, decida a melhor estratégia para exibi-lo:
    - "imagem": Se for uma promoção agressiva, destaque de vendas ou oferta especial que chama atenção.
    - "legenda": Se o preço for apenas informativo, mantendo a imagem limpa e focada no estilo e sofisticação.
    - "nenhum": Se o preço não foi fornecido.
@@ -60,34 +59,35 @@ async def gerar_embedding_documento(texto: str) -> list[float]:
     return await gerar_embedding(texto, task_type="RETRIEVAL_DOCUMENT")
 
 
-async def gerar_post(tom_voz: str, objetivo: str, imagem_base64: str, preco: str = "") -> PostContent:
+async def gerar_post(objetivo: str, file_search_store_name: str) -> tuple[PostContent, str | None]:
+    """Gera um post utilizando a ferramenta File Search (RAG Nativo) do Gemini."""
     client = _client()
 
     prompt = (
-        f"Contexto do Cliente (Recuperado via RAG): {tom_voz}\n"
-        f"Objetivo do Post: {objetivo}\n"
-        f"Preço do Produto (se houver): {preco}\n"
-        "Imagem do Produto: [imagem anexada]"
+        f"Consulte o seu File Search para obter o contexto da marca (tom de voz, nicho) e do produto cadastrado.\n"
+        f"Objetivo do Post (Tema da campanha): {objetivo}\n"
+        f"Gere o post correspondente no formato JSON requerido."
     )
 
-    image_part = types.Part.from_bytes(
-        data=base64.b64decode(imagem_base64),
-        mime_type="image/jpeg",
-    )
+    tools = [
+        types.Tool(
+            file_search=types.FileSearch(
+                file_search_store_names=[file_search_store_name]
+            )
+        )
+    ]
 
     response = await asyncio.wait_for(
         client.aio.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=[prompt, image_part],
+            model="gemini-3.5-flash",
+            contents=prompt,
             config=types.GenerateContentConfig(
                 system_instruction=_SYSTEM_INSTRUCTION,
                 response_mime_type="application/json",
                 response_schema=_POST_SCHEMA,
                 temperature=0.85,
                 max_output_tokens=2048,
-                # gemini-2.5 e um modelo "thinking"; sem isto os tokens de
-                # raciocinio consomem o budget e o JSON volta truncado.
-                thinking_config=types.ThinkingConfig(thinking_budget=0),
+                tools=tools
             ),
         ),
         timeout=90,
@@ -98,5 +98,95 @@ async def gerar_post(tom_voz: str, objetivo: str, imagem_base64: str, preco: str
             f"Conteúdo bloqueado pelos filtros de segurança: {response.prompt_feedback.block_reason}"
         )
 
+    # Procura citação de imagem (media_id) nos metadados de grounding
+    media_id = None
+    if response.candidates and response.candidates[0].grounding_metadata:
+        gm = response.candidates[0].grounding_metadata
+        if gm.grounding_chunks:
+            for chunk in gm.grounding_chunks:
+                if chunk.retrieved_context and chunk.retrieved_context.media_id:
+                    media_id = chunk.retrieved_context.media_id
+                    break
+
+    img_b64 = None
+    if media_id:
+        try:
+            # Faz o download do blob do produto referenciado na citação
+            img_bytes = await asyncio.to_thread(
+                client.file_search_stores.download_media,
+                media_id=media_id
+            )
+            img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+        except Exception as e:
+            print(f"[LLMService] Erro ao baixar mídia RAG {media_id}: {e}")
+
     data = json.loads(response.text)
-    return PostContent(**data)
+    return PostContent(**data), img_b64
+
+# --- Novo Fluxo Estruturado de Planejamento ---
+from ..schemas.post_schema import PlanejamentoSocialMedia
+
+_SYSTEM_INSTRUCTION_PLANNING = """Você atua como o Diretor de Criação e Social Media de Elite da plataforma OurCore/N1.
+Sua tarefa é planejar um cronograma de conteúdo completo para as redes sociais da empresa, consultando o File Search fornecido para obter as regras de marca (tom de voz, nicho) e as especificações de produtos do catálogo.
+
+REGRAS ABSOLUTAS:
+1. Obedeça cegamente ao 'Tom de Voz' recuperado através do File Search.
+2. Gere um cronograma de planejamento para exatamente a quantidade de dias solicitada.
+3. Para cada dia do planejamento, você deve gerar no MÍNIMO 1 conteúdo (pode ser post_unico, carrossel ou storie) e no MÁXIMO 2 conteúdos (ex: 1 post e 1 storie no mesmo dia).
+4. Para cada postagem, se ela fizer referência a um produto específico do catálogo indexado no File Search, indique no campo 'nome_produto_referenciado' o nome exato do produto como especificado nas tags do File Search (ex: 'Tênis Nike Branco'). Se for um conteúdo genérico ou conceitual, deixe como null.
+5. Se o produto tiver preço cadastrado no File Search, decida de forma inteligente o local do preço ('imagem', 'legenda', ou 'nenhum').
+6. Você não deve conversar. Retorne APENAS um objeto JSON válido seguindo estritamente o schema requerido."""
+
+async def planejar_cronograma(objetivo: str, quantidade_dias: int, file_search_store_name: str) -> PlanejamentoSocialMedia:
+    client = _client()
+
+    if quantidade_dias == 1:
+        estrategia_periodo = "ESTRATÉGIA DIÁRIA: Foco em uma única ação imediata e de alto impacto, otimizada para o tema."
+    elif quantidade_dias <= 7:
+        estrategia_periodo = "ESTRATÉGIA SEMANAL: Crie um fluxo de engajamento balanceado, variando entre post_unico, stories com enquetes e carrosséis explicativos."
+    else:
+        estrategia_periodo = (
+            "ESTRATÉGIA MENSAL (30 dias): Planeje uma jornada completa de 4 semanas. "
+            "Intercale campanhas de vendas com conteúdo de valor do nicho. Evite que o feed fique repetitivo."
+        )
+
+    prompt = (
+        f"Consulte o seu File Search para obter o contexto da marca (tom de voz, nicho) e do produto cadastrado.\n"
+        f"Gere um cronograma de postagens de redes sociais de alta performance.\n"
+        f"Diretriz do Período: {estrategia_periodo}\n"
+        f"Quantidade de dias planejados: {quantidade_dias} dia(s)\n"
+        f"Objetivo do Cronograma (Foco da campanha): {objetivo}\n"
+        f"Retorne o planejamento estruturado seguindo o schema JSON requerido."
+    )
+
+    tools = [
+        types.Tool(
+            file_search=types.FileSearch(
+                file_search_store_names=[file_search_store_name]
+            )
+        )
+    ]
+
+    response = await asyncio.wait_for(
+        client.aio.models.generate_content(
+            model="gemini-3.5-flash",
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                system_instruction=_SYSTEM_INSTRUCTION_PLANNING,
+                response_mime_type="application/json",
+                response_schema=PlanejamentoSocialMedia,
+                temperature=0.85,
+                max_output_tokens=4096,
+                tools=tools
+            ),
+        ),
+        timeout=120,
+    )
+
+    if response.prompt_feedback and response.prompt_feedback.block_reason:
+        raise ValueError(
+            f"Conteúdo bloqueado pelos filtros de segurança: {response.prompt_feedback.block_reason}"
+        )
+
+    data = json.loads(response.text)
+    return PlanejamentoSocialMedia(**data)

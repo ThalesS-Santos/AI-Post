@@ -10,6 +10,7 @@ from ..models.database import (
     atualizar_produto,
     deletar_produto,
     atualizar_regra_marca,
+    garantir_rag_store,
 )
 from ..schemas.post_schema import (
     BrandSetupRequest,
@@ -134,11 +135,19 @@ async def status_setup(cliente_id: str, token: dict = Depends(verify_token)):
     """Diz se o usuário já cadastrou a marca e as fotos (controla o onboarding)."""
     if token["sub"] != cliente_id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Acesso não autorizado.")
+    
+    # Garante a criação da File Search Store do RAG nativo assim que o usuário faz login
+    await garantir_rag_store(cliente_id)
+    
     marca = await buscar_regra_marca(cliente_id)
     produtos = await listar_produtos(cliente_id)
+    
+    # Considera marca cadastrada se o texto descritivo estiver preenchido (não vazio)
+    tem_marca = marca is not None and marca.get("texto_base", "").strip() != ""
+    
     return {
         "status": "success",
-        "tem_marca": marca is not None,
+        "tem_marca": tem_marca,
         "tem_fotos": len(produtos) > 0,
         "total_fotos": len(produtos),
     }

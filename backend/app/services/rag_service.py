@@ -2,64 +2,139 @@ import asyncio
 from google.genai.errors import ClientError
 
 from ..models.database import (
-    buscar_produtos_similares,
-    buscar_produto_por_id,
     buscar_regra_marca,
     listar_produtos,
+    buscar_produto_por_id,
 )
-from ..schemas.post_schema import PostContent
+from ..schemas.post_schema import PostContent, ConteudoMidia
 from .image_service import gerar_imagem_ia
-from .llm_service import gerar_embedding, gerar_post
+from .llm_service import gerar_post, planejar_cronograma
 from .storage_service import baixar_imagem, para_base64
 
 
-async def _recuperar_contexto(cliente_id: str, foco: str) -> list[dict]:
-    vetor = await gerar_embedding(foco)
-    return await buscar_produtos_similares(cliente_id=cliente_id, vetor_query=vetor, limite=5)
-
-
-async def _resolver_tom_voz(cliente_id: str, contextos: list[dict]) -> tuple[str, str]:
-    """Retorna (tom_voz, url_logo_marca)"""
-    regra = next((c for c in contextos if c.get("tipo") == "regra_marca"), None)
-    if regra and regra.get("texto_base"):
-        return regra["texto_base"], regra.get("url_imagem", "")
-    rm = await buscar_regra_marca(cliente_id)
-    return (rm["texto_base"], rm.get("url_imagem", "")) if rm else ("", "")
-
-
-async def _montar_post(
-    produto: dict,
-    tom_voz: str,
+async def _gerar_imagem_para_conteudo(
+    midia: ConteudoMidia,
+    dia_numero: int,
     foco: str,
-    com_imagem: bool = True,
     estilos_imagem: list[str] = None,
     logo_url: str = "",
+    todos_produtos: list[dict] = None,
+    index: int = 0
 ) -> PostContent:
-    """Gera 1 post completo: PRIMEIRO a legenda, DEPOIS a imagem a partir dela."""
-    raw = await baixar_imagem(produto["url_imagem"])
-    b64 = para_base64(raw)
-    preco_produto = produto.get("preco", "")
+    """Gera a imagem e mapeia para o formato PostContent do frontend."""
+    # 1) Mapeia do ConteudoMidia estruturado para o PostContent
+    tipo_display = midia.tipo.replace("_", " ").title()
+    t_interno = f"Dia {dia_numero} - {tipo_display}"
+    if midia.numero_imagens_carrossel:
+        t_interno += f" ({midia.numero_imagens_carrossel} imagens)"
 
-    # 1) Legenda (texto) — base de tudo
-    post = await gerar_post(tom_voz=tom_voz, objetivo=foco, imagem_base64=b64, preco=preco_produto)
-    post.produto_id = str(produto["id"])
-    post.produto_url = produto["url_imagem"]
+    legenda_completa = midia.legenda
+    if midia.elementos_storie:
+        legenda_completa += f"\n\n[Dica de Interação: {midia.elementos_storie}]"
 
-    # 2) Imagem IA, usando a legenda recém-criada como prompt principal e descrição textual do produto
-    if com_imagem:
-        img = await gerar_imagem_ia(
-            legenda=post.legenda_instagram, 
-            produto_b64=b64, 
-            tema=foco,
-            descricao_produto=produto.get("texto_base", ""),
-            estilos_imagem=estilos_imagem,
-            logo_url=logo_url,
-            preco=preco_produto,
-            local_do_preco=post.local_do_preco
-        )
-        if img:
-            post.imagem_gerada_base64 = img
+    post = PostContent(
+        titulo_interno=t_interno,
+        legenda_instagram=legenda_completa,
+        sugestao_de_edicao_visual=midia.descricao_visual,
+        hashtags=midia.hashtags or [],
+        local_do_preco=midia.local_do_preco
+    )
+
+    # 2) Encontra imagem correspondente do produto no catálogo local
+    matching_prod = None
+    img_b64 = None
+
+    if midia.nome_produto_referenciado:
+        for prod in (todos_produtos or []):
+            if midia.nome_produto_referenciado.lower().strip() in prod.get("texto_base", "").lower():
+                matching_prod = prod
+                break
+
+    if matching_prod:
+        try:
+            raw = await baixar_imagem(matching_prod["url_imagem"])
+            img_b64 = para_base64(raw)
+            post.produto_id = str(matching_prod["id"])
+            post.produto_url = matching_prod["url_imagem"]
             post.imagem_disponivel = True
+        except Exception as e:
+            print(f"[RAGService] Erro ao baixar imagem do produto referenciado ({matching_prod['texto_base']}): {e}")
+
+    # Fallback: Se não casou nome de produto ou falhou download, mas há produtos no catálogo
+    if not img_b64 and todos_produtos:
+        fallback_prod = todos_produtos[index % len(todos_produtos)]
+        try:
+            raw = await baixar_imagem(fallback_prod["url_imagem"])
+            img_b64 = para_base64(raw)
+            post.produto_id = str(fallback_prod["id"])
+            post.produto_url = fallback_prod["url_imagem"]
+            post.imagem_disponivel = True
+        except Exception as e:
+            print(f"[RAGService] Erro ao baixar imagem de fallback: {e}")
+
+    # 3) Renderiza a(s) imagem(ns) final(is) de marketing por IA usando gemini-3.1-flash-image
+    if img_b64:
+        aspect_ratio = "9:16" if midia.tipo == "storie" else "1:1"
+        
+        if midia.tipo == "carrossel":
+            num_imgs = midia.numero_imagens_carrossel or 4
+            
+            # Gera a primeira imagem sequencialmente para servir de guia de estilo
+            first_img = await gerar_imagem_ia(
+                legenda=post.legenda_instagram, 
+                produto_b64=img_b64, 
+                tema=foco,
+                descricao_produto=f"{post.titulo_interno} - Imagem 1",
+                estilos_imagem=estilos_imagem,
+                logo_url=logo_url,
+                preco=matching_prod.get("preco", "") if matching_prod else "",
+                local_do_preco=post.local_do_preco,
+                aspect_ratio="1:1"
+            )
+            
+            if first_img:
+                post.imagem_gerada_base64 = first_img
+                post.imagem_disponivel = True
+                
+                # Se houver mais de uma imagem no carrossel, gera as outras em paralelo
+                if num_imgs > 1:
+                    async def gerar_slide(slide_num: int):
+                        return await gerar_imagem_ia(
+                            legenda=post.legenda_instagram,
+                            produto_b64=img_b64,
+                            tema=foco,
+                            descricao_produto=f"{post.titulo_interno} - Imagem {slide_num}",
+                            estilos_imagem=estilos_imagem,
+                            logo_url=logo_url,
+                            preco=matching_prod.get("preco", "") if matching_prod else "",
+                            local_do_preco="nenhum", # preço apenas no primeiro slide
+                            aspect_ratio="1:1",
+                            referencia_b64=first_img # Passa a primeira imagem como referência de estilo
+                        )
+                    
+                    tasks = [gerar_slide(i) for i in range(2, num_imgs + 1)]
+                    other_images = await asyncio.gather(*tasks)
+                    
+                    post.imagens_carrossel_base64 = [first_img] + [img for img in other_images if img]
+                else:
+                    post.imagens_carrossel_base64 = [first_img]
+        else:
+            # Post Único ou Storie
+            img_marketing = await gerar_imagem_ia(
+                legenda=post.legenda_instagram, 
+                produto_b64=img_b64, 
+                tema=foco,
+                descricao_produto=post.titulo_interno,
+                estilos_imagem=estilos_imagem,
+                logo_url=logo_url,
+                preco=matching_prod.get("preco", "") if matching_prod else "",
+                local_do_preco=post.local_do_preco,
+                aspect_ratio=aspect_ratio
+            )
+            if img_marketing:
+                post.imagem_gerada_base64 = img_marketing
+                post.imagem_disponivel = True
+                post.imagens_carrossel_base64 = [img_marketing]
 
     return post
 
@@ -70,32 +145,42 @@ async def orquestrar_geracao(
     quantidade: int,
     estilos_imagem: list[str] = None,
 ) -> list[PostContent]:
-    produtos = await _recuperar_contexto(cliente_id, foco)
-
-    # Se a quantidade solicitada for maior que o retornado pelo RAG,
-    # preservamos a ordem de relevância dos produtos RAG e completamos com os demais produtos do catálogo.
-    if quantidade > len(produtos):
-        todos = await listar_produtos(cliente_id)
-        if todos:
-            ids_existentes = {p["id"] for p in produtos}
-            adicionais = [p for p in todos if p["id"] not in ids_existentes]
-            produtos.extend(adicionais)
-
-    if not produtos:
-        raise ValueError(
-            "Você ainda não tem fotos salvas. Adicione fotos do seu produto antes de gerar posts."
-        )
-
-    tom_voz, logo_url = await _resolver_tom_voz(cliente_id, [])
-    if not tom_voz:
+    marca = await buscar_regra_marca(cliente_id)
+    if not marca:
         raise ValueError("Configure sua marca primeiro (nome, tom de voz e nicho).")
+        
+    store_name = marca.get("metadata", {}).get("file_search_store_name")
+    if not store_name:
+        raise ValueError("File Search Store da marca não encontrada. Atualize suas configurações de marca.")
+        
+    logo_url = marca.get("url_imagem", "")
+    todos_produtos = await listar_produtos(cliente_id)
 
-    # Gerar concorrentemente com asyncio.gather para evitar timeouts em lotes
-    tarefas = []
-    for i in range(quantidade):
-        produto = produtos[i % len(produtos)]
-        tarefas.append(_montar_post(produto, tom_voz, foco, estilos_imagem=estilos_imagem, logo_url=logo_url))
+    # 1. Faz o planejamento estruturado geral em uma única chamada
+    cronograma_plan = await planejar_cronograma(
+        objetivo=foco,
+        quantidade_dias=quantidade,
+        file_search_store_name=store_name
+    )
     
+    # 2. Desmembra as postagens planejadas e cria tarefas para gerar as mídias em paralelo
+    tarefas = []
+    idx = 0
+    for dia in cronograma_plan.cronograma:
+        for midia in dia.conteudos:
+            tarefas.append(
+                _gerar_imagem_para_conteudo(
+                    midia=midia,
+                    dia_numero=dia.dia_numero,
+                    foco=foco,
+                    estilos_imagem=estilos_imagem,
+                    logo_url=logo_url,
+                    todos_produtos=todos_produtos,
+                    index=idx
+                )
+            )
+            idx += 1
+        
     resultados = await asyncio.gather(*tarefas, return_exceptions=True)
     
     posts: list[PostContent] = []
@@ -114,25 +199,13 @@ async def orquestrar_geracao(
     return posts
 
 
-# ---------- Refazer individual ----------
-
-async def _contexto_regen(cliente_id: str, produto_id: str) -> tuple[dict, str, str, str]:
-    produto = await buscar_produto_por_id(cliente_id, produto_id)
-    if not produto:
-        raise ValueError("Foto não encontrada na sua conta.")
-    tom_voz, logo_url = await _resolver_tom_voz(cliente_id, [])
-    raw = await baixar_imagem(produto["url_imagem"])
-    b64 = para_base64(raw)
-    return produto, tom_voz, logo_url, b64
-
-
 async def regenerar_legenda(cliente_id: str, foco: str, produto_id: str, estilos_imagem: list[str] = None) -> PostContent:
-    """Refaz APENAS a legenda de um post (mantém a mesma foto-base)."""
-    produto, tom_voz, logo_url, b64 = await _contexto_regen(cliente_id, produto_id)
-    preco_produto = produto.get("preco", "")
-    post = await gerar_post(tom_voz=tom_voz, objetivo=foco, imagem_base64=b64, preco=preco_produto)
-    post.produto_id = str(produto["id"])
-    post.produto_url = produto["url_imagem"]
+    """Refaz a legenda consultando o RAG Store da marca."""
+    marca = await buscar_regra_marca(cliente_id)
+    store_name = marca.get("metadata", {}).get("file_search_store_name") if marca else None
+    if not store_name:
+        raise ValueError("File Search Store da marca não encontrada.")
+    post, _ = await gerar_post(objetivo=foco, file_search_store_name=store_name)
     return post
 
 
@@ -143,9 +216,16 @@ async def regenerar_imagem(
     legenda: str,
     estilos_imagem: list[str] = None,
 ) -> str | None:
-    """Refaz APENAS a imagem, usando a legenda existente como prompt."""
-    produto, _tom, logo_url, b64 = await _contexto_regen(cliente_id, produto_id)
-    preco_produto = produto.get("preco", "")
+    """Refaz a imagem a partir de uma foto de produto do catálogo."""
+    produto = await buscar_produto_por_id(cliente_id, produto_id)
+    if not produto:
+        raise ValueError("Foto não encontrada.")
+    raw = await baixar_imagem(produto["url_imagem"])
+    b64 = para_base64(raw)
+    
+    marca = await buscar_regra_marca(cliente_id)
+    logo_url = marca.get("url_imagem", "") if marca else ""
+    
     return await gerar_imagem_ia(
         legenda=legenda, 
         produto_b64=b64, 
@@ -153,7 +233,6 @@ async def regenerar_imagem(
         descricao_produto=produto.get("texto_base", ""),
         estilos_imagem=estilos_imagem,
         logo_url=logo_url,
-        preco=preco_produto,
-        # Default para legenda regenerada não mudamos, apenas se quiser refazer
-        local_do_preco="nenhum" # Para imagem solta
+        preco=produto.get("preco", ""),
+        local_do_preco="nenhum"
     )

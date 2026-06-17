@@ -1,6 +1,6 @@
+import time
 from fastapi import HTTPException, Depends, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-import time
 
 from ..models.database import _get_client
 
